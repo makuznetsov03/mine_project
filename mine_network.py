@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 
+# Отключаем интерактивное отображение графиков
+plt.ioff()  # отключает интерактивный режим - графики не будут показываться
+
 # Чтение данных
 mine_axes = pd.read_csv('mine_axes.csv')
 equipment = pd.read_csv('equipment.csv')
@@ -181,9 +184,14 @@ class Worker:
 
 # Визуализация графа
 def visualize_mine_graph():
-    # Создаем 3D-график
-    fig = plt.figure(figsize=(15, 12))
-    ax = fig.add_subplot(111, projection='3d')
+    # Создаем фигуру с двумя подграфиками - 3D и 2D
+    fig = plt.figure(figsize=(20, 10))
+    
+    # 3D-визуализация
+    ax1 = fig.add_subplot(121, projection='3d')
+    
+    # 2D-визуализация (вид сбоку: x-z плоскость)
+    ax2 = fig.add_subplot(122)
     
     # Позиции узлов будут соответствовать средней точке между началом и концом выработки
     pos_3d = {}
@@ -196,7 +204,7 @@ def visualize_mine_graph():
             (start_pos[2] + end_pos[2]) / 2
         )
     
-    # Отрисовка узлов
+    # Отрисовка узлов в 3D
     for node in G.nodes:
         x, y, z = pos_3d[node]
         
@@ -211,15 +219,15 @@ def visualize_mine_graph():
         else:
             color = 'red'
             
-        ax.scatter(x, y, z, color=color, s=100)
-        ax.text(x, y, z, node, fontsize=10)
+        ax1.scatter(x, y, z, color=color, s=100)
+        ax1.text(x, y, z, node, fontsize=10)
         
-        # Отрисовка линий выработок
+        # Отрисовка линий выработок в 3D
         start_x, start_y, start_z = G.nodes[node]['start_pos']
         end_x, end_y, end_z = G.nodes[node]['end_pos']
-        ax.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1)
+        ax1.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1)
     
-    # Отрисовка ребер (связей между выработками)
+    # Отрисовка ребер (связей между выработками) в 3D
     for edge in G.edges:
         node1, node2 = edge
         x1, y1, z1 = pos_3d[node1]
@@ -228,15 +236,58 @@ def visualize_mine_graph():
         # Проверяем, является ли это искусственным соединением
         if G.edges[edge].get('artificial', False):
             # Искусственные соединения рисуем красным пунктиром
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
         else:
             # Обычные соединения рисуем синим пунктиром
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b--', linewidth=1, alpha=0.5)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'b--', linewidth=1, alpha=0.5)
     
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('3D Модель шахтных выработок')
+    ax1.set_xlabel('X')
+    ax1.set_ylabel('Y')
+    ax1.set_zlabel('Z')
+    ax1.set_title('3D Модель шахтных выработок')
+    
+    # Отрисовка 2D-проекции (вид сбоку: x-z плоскость)
+    for node in G.nodes:
+        # Цвет узла зависит от статуса выработки
+        status = G.nodes[node]['status']
+        if status == 1:
+            color = 'green'
+        elif status == 2:
+            color = 'yellow'
+        elif status == 3:
+            color = 'orange'
+        else:
+            color = 'red'
+            
+        # Отрисовка линий выработок в 2D (x-z проекция)
+        start_x, start_z = G.nodes[node]['start_pos'][0], G.nodes[node]['start_pos'][2]
+        end_x, end_z = G.nodes[node]['end_pos'][0], G.nodes[node]['end_pos'][2]
+        ax2.plot([start_x, end_x], [start_z, end_z], 'k-', linewidth=1)
+        
+        # Рисуем узел в середине выработки
+        middle_x = (start_x + end_x) / 2
+        middle_z = (start_z + end_z) / 2
+        ax2.scatter(middle_x, middle_z, color=color, s=100)
+        ax2.text(middle_x, middle_z, node, fontsize=10)
+    
+    # Отрисовка ребер (связей между выработками) в 2D
+    for edge in G.edges:
+        node1, node2 = edge
+        x1, z1 = pos_3d[node1][0], pos_3d[node1][2]
+        x2, z2 = pos_3d[node2][0], pos_3d[node2][2]
+        
+        # Проверяем, является ли это искусственным соединением
+        if G.edges[edge].get('artificial', False):
+            # Искусственные соединения рисуем красным пунктиром
+            ax2.plot([x1, x2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
+        else:
+            # Обычные соединения рисуем синим пунктиром
+            ax2.plot([x1, x2], [z1, z2], 'b--', linewidth=1, alpha=0.5)
+    
+    ax2.set_xlabel('X')
+    ax2.set_ylabel('Z')
+    ax2.set_title('2D Модель шахтных выработок (вид сбоку)')
+    ax2.grid(True, linestyle='--', alpha=0.7)
     
     plt.tight_layout()
     plt.savefig('mine_network.png', dpi=300)

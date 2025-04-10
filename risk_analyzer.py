@@ -6,6 +6,9 @@ from mpl_toolkits.mplot3d import Axes3D
 import os
 import csv
 
+# Отключаем интерактивное отображение графиков
+plt.ioff()  # отключает интерактивный режим - графики не будут показываться
+
 def load_data():
     """Загрузка данных из CSV файлов"""
     print("Загрузка данных...")
@@ -26,7 +29,8 @@ def build_risk_graph(mine_axes, equipment, axis_works, works, tolerance=2.0):
         node_id = row['short_name']
         
         # Базовая вероятность ЧП для выработки (зависит от статуса выработки)
-        base_risk = 0.001 * row['status']  # Пример расчета базового риска
+        # Уменьшаем базовый риск для снижения интегральной вероятности
+        base_risk = 0.0005 * row['status']  # Уменьшили в 2 раза с 0.001
         
         G.add_node(node_id, 
                   name=row['full_name'],
@@ -174,7 +178,8 @@ def build_risk_graph(mine_axes, equipment, axis_works, works, tolerance=2.0):
         # Добавляем оборудование к ближайшей выработке
         if closest_node and min_distance < tolerance * 2:
             # Риск от оборудования зависит от его статуса и типа
-            eq_risk = 0.002 * row['status'] * (1 + row['line_eq'] / 10)
+            # Снижаем риск от оборудования
+            eq_risk = 0.001 * row['status'] * (1 + row['line_eq'] / 10)  # Уменьшено с 0.002 до 0.001
             
             eq_info = {
                 'id': eq_id,
@@ -204,13 +209,18 @@ def calculate_node_risk(base_risk, work_risk, equipment_risk):
     """
     Формула для расчета полной вероятности ЧП в выработке.
     
-    Вариант комбинированной формулы:
-    total_risk = base_risk + work_risk + equipment_risk - (base_risk * work_risk) - 
-                 (base_risk * equipment_risk) - (work_risk * equipment_risk) + 
-                 (base_risk * work_risk * equipment_risk)
+    Модифицированная формула для снижения итоговой вероятности:
+    total_risk = base_risk + work_risk*0.7 + equipment_risk*0.6 - 
+                 (base_risk * work_risk*0.7) - (base_risk * equipment_risk*0.6) - 
+                 (work_risk*0.7 * equipment_risk*0.6) + 
+                 (base_risk * work_risk*0.7 * equipment_risk*0.6)
     
-    Это формула объединения событий с учетом их возможного пересечения.
+    Введены понижающие коэффициенты для рисков от работ и оборудования.
     """
+    # Применяем понижающие коэффициенты
+    work_risk = work_risk * 0.7
+    equipment_risk = equipment_risk * 0.6
+    
     # Вероятность того, что хотя бы одно из событий произойдет (Правило сложения вероятностей)
     total_risk = base_risk + work_risk + equipment_risk
     
@@ -290,9 +300,14 @@ def visualize_risk_graph(G, save_path='risk_map.png'):
     """Визуализация графа шахтных выработок с учетом рисков"""
     print(f"\nСоздание визуализации графа рисков...")
     
-    # Создаем 3D график
-    fig = plt.figure(figsize=(16, 12))
-    ax = fig.add_subplot(111, projection='3d')
+    # Создаем фигуру с двумя подграфиками - 3D и 2D
+    fig = plt.figure(figsize=(20, 12))
+    
+    # 3D-визуализация
+    ax1 = fig.add_subplot(121, projection='3d')
+    
+    # 2D-визуализация (вид сбоку: x-z плоскость)
+    ax2 = fig.add_subplot(122)
     
     # Позиции узлов
     pos_3d = {}
@@ -305,11 +320,11 @@ def visualize_risk_graph(G, save_path='risk_map.png'):
             (start_pos[2] + end_pos[2]) / 2
         )
     
-    # Отрисовка выработок как линий
+    # Отрисовка выработок как линий в 3D
     for node in G.nodes:
         start_x, start_y, start_z = G.nodes[node]['start_pos']
         end_x, end_y, end_z = G.nodes[node]['end_pos']
-        ax.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1, alpha=0.3)
+        ax1.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1, alpha=0.3)
     
     # Определение цветов узлов на основе вероятности ЧП
     node_colors = []
@@ -332,21 +347,21 @@ def visualize_risk_graph(G, save_path='risk_map.png'):
         # Размер узла зависит от риска
         node_sizes.append(50 + 500 * risk)
     
-    # Координаты узлов
+    # Координаты узлов для 3D
     x_nodes = [pos_3d[node][0] for node in G.nodes]
     y_nodes = [pos_3d[node][1] for node in G.nodes]
     z_nodes = [pos_3d[node][2] for node in G.nodes]
     
-    # Отрисовка узлов
-    scatter = ax.scatter(x_nodes, y_nodes, z_nodes, c=node_colors, s=node_sizes, alpha=0.7, edgecolors='black')
+    # Отрисовка узлов в 3D
+    scatter1 = ax1.scatter(x_nodes, y_nodes, z_nodes, c=node_colors, s=node_sizes, alpha=0.7, edgecolors='black')
     
-    # Подписи узлов с информацией о риске
-    for node in G.nodes:
+    # Подписи узлов с информацией о риске в 3D
+    for i, node in enumerate(G.nodes):
         x, y, z = pos_3d[node]
         risk_text = f"{node}: {G.nodes[node]['total_risk']:.4f}"
-        ax.text(x, y, z, risk_text, fontsize=8)
+        ax1.text(x, y, z, risk_text, fontsize=8)
     
-    # Отрисовка соединений между выработками
+    # Отрисовка соединений между выработками в 3D
     for edge in G.edges:
         node1, node2 = edge
         x1, y1, z1 = pos_3d[node1]
@@ -354,9 +369,63 @@ def visualize_risk_graph(G, save_path='risk_map.png'):
         
         # Стиль линии зависит от типа соединения
         if G.edges[edge].get('artificial', False):
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
         else:
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'b--', linewidth=0.5, alpha=0.2)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'b--', linewidth=0.5, alpha=0.2)
+    
+    # Настройка осей и заголовка 3D
+    ax1.set_xlabel('X')
+    ax1.set_ylabel('Y')
+    ax1.set_zlabel('Z')
+    ax1.set_title('3D Карта рисков шахтных выработок', fontsize=14)
+    
+    # 2D визуализация (вид сбоку: x-z плоскость)
+    
+    # Отрисовка узлов (центров выработок) в 2D
+    for node in G.nodes:
+        risk = G.nodes[node]['total_risk']
+        
+        # Цвет от зеленого (низкий риск) до красного (высокий риск)
+        if risk < 0.01:  # Очень низкий риск
+            color = 'green'
+        elif risk < 0.05:  # Низкий риск
+            color = 'yellowgreen'
+        elif risk < 0.1:  # Средний риск
+            color = 'yellow'
+        elif risk < 0.2:  # Высокий риск
+            color = 'orange'
+        else:  # Очень высокий риск
+            color = 'red'
+        
+        # Размер узла зависит от риска
+        size = 50 + 500 * risk
+        
+        # Рисуем узел в центре выработки
+        x = pos_3d[node][0]
+        z = pos_3d[node][2]
+        ax2.scatter(x, z, color=color, s=size, alpha=0.7, edgecolors='black')
+        
+        # Подпись узла
+        risk_text = f"{node}: {risk:.4f}"
+        ax2.text(x, z, risk_text, fontsize=8)
+    
+    # Отрисовка соединений между выработками в 2D
+    for edge in G.edges:
+        node1, node2 = edge
+        x1, z1 = pos_3d[node1][0], pos_3d[node1][2]
+        x2, z2 = pos_3d[node2][0], pos_3d[node2][2]
+        
+        # Стиль линии зависит от типа соединения
+        if G.edges[edge].get('artificial', False):
+            ax2.plot([x1, x2], [z1, z2], 'r--', linewidth=1.5, alpha=0.7)
+        else:
+            ax2.plot([x1, x2], [z1, z2], 'b--', linewidth=0.8, alpha=0.5)
+    
+    # Настройка осей и заголовка 2D
+    ax2.set_xlabel('X')
+    ax2.set_ylabel('Z')
+    ax2.set_title('Граф рисков шахты - схематический вид сбоку (X-Z)', fontsize=14)
+    ax2.grid(True, linestyle='--', alpha=0.5)
     
     # Легенда для рисков
     from matplotlib.lines import Line2D
@@ -367,20 +436,17 @@ def visualize_risk_graph(G, save_path='risk_map.png'):
         Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=10, label='Высокий риск (0.1-0.2)'),
         Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=10, label='Очень высокий риск (>0.2)')
     ]
-    ax.legend(handles=legend_elements, loc='upper right')
     
-    # Настройка осей и заголовка
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title('Карта рисков шахтных выработок', fontsize=14)
+    # Добавляем общую легенду для обоих графиков
+    fig.legend(handles=legend_elements, loc='lower center', ncol=5, bbox_to_anchor=(0.5, 0.02))
     
     # Сохранение и отображение
     plt.tight_layout()
+    plt.subplots_adjust(bottom=0.15)  # Оставляем место для легенды
     plt.savefig(save_path, dpi=300)
     print(f"Визуализация сохранена в файл: {save_path}")
     
-    return fig, ax
+    return fig, (ax1, ax2)
 
 def save_risk_data(G, output_file='risk_data.csv'):
     """Сохранение данных о рисках в CSV файл"""
@@ -429,4 +495,11 @@ def main():
     return G
 
 if __name__ == "__main__":
-    G = main() 
+    G = main()
+    
+    # Выводим интегральную вероятность ЧП для отладки
+    risks = [data['total_risk'] for _, data in G.nodes(data=True)]
+    total_system_risk = calculate_system_risk(risks)
+    print(f"\n=============================================================")
+    print(f"ИТОГОВАЯ ИНТЕГРАЛЬНАЯ ВЕРОЯТНОСТЬ ЧП: {total_system_risk:.6f}")
+    print(f"=============================================================\n") 

@@ -166,9 +166,23 @@ class Worker:
         self.work_code = work_code
         self.path_history = [current_node]
         self.target_node = None
-        self.path = None
+        self.path = [current_node]  # Инициализируем начальным узлом вместо None
         self.current_path_index = 0
-        self.position = pos_3d[current_node]  # Текущая 3D позиция
+        
+        # Текущая выработка и позиция на ней
+        node_data = G.nodes[current_node]
+        self.current_segment = (node_data['start_pos'], node_data['end_pos'])
+        self.segment_progress = random.random()  # Начальная случайная позиция на выработке
+        
+        # Вычисляем начальную 3D позицию на выработке
+        start_pos = node_data['start_pos']
+        end_pos = node_data['end_pos']
+        self.position = (
+            start_pos[0] + (end_pos[0] - start_pos[0]) * self.segment_progress,
+            start_pos[1] + (end_pos[1] - start_pos[1]) * self.segment_progress,
+            start_pos[2] + (end_pos[2] - start_pos[2]) * self.segment_progress
+        )
+        
         self.next_position = None
         self.movement_progress = 0
         
@@ -176,8 +190,8 @@ class Worker:
         work_type = (self.work_code // 100) * 100
         self.color = work_type_colors.get(work_type, 'magenta')
         
-        self.speed = random.uniform(0.15, 0.3)  # Еще больше увеличиваем скорость перемещения
-        self.work_time = random.randint(3, 8)  # Сильно уменьшаем время работы
+        self.speed = random.uniform(0.4, 0.6)  # Увеличиваем скорость перемещения (было 0.15-0.3)
+        self.work_time = random.randint(20, 35)  # Время работы
         self.current_work_time = 0
         self.working = False
         self.status = "ожидание"
@@ -199,23 +213,30 @@ class Worker:
     def set_target(self, target_node):
         """Устанавливает целевую выработку и находит путь к ней"""
         self.target_node = target_node
-        self.path = self.find_shortest_path(target_node)
-        self.current_path_index = 0
+        found_path = self.find_shortest_path(target_node)
         
-        if self.path and len(self.path) > 1:
-            self.next_position = pos_3d[self.path[1]]
-            self.movement_progress = 0
+        if found_path and len(found_path) > 1:
+            self.path = found_path
+            self.current_path_index = 0
+            
+            # Устанавливаем первый сегмент пути - текущую выработку
+            node_data = G.nodes[self.path[0]]
+            self.current_segment = (node_data['start_pos'], node_data['end_pos'])
             self.status = "перемещение"
             self.working = False
             self.shape = '>'  # Изменяем форму маркера при движении
             return True
-        return False
+        else:
+            # Если путь не найден или состоит только из текущего узла, 
+            # начинаем работать на месте
+            self.start_working()
+            return False
     
     def start_working(self):
         """Начинает выполнять работу в текущей выработке"""
         self.working = True
         self.current_work_time = 0
-        self.work_time = random.randint(3, 10)  # Очень короткое время работы
+        self.work_time = random.randint(20, 35)  # Значительно увеличиваем время работы (было 3-10)
         self.status = "работа"
         self.shape = '*'  # Звездочка для работающего состояния
         self.size = 150   # Увеличиваем размер при работе
@@ -232,7 +253,7 @@ class Worker:
         """Обновляет состояние работника"""
         # Если работник выполняет работу
         if self.working:
-            self.current_work_time += 3  # Значительно ускоряем счетчик работы
+            self.current_work_time += 1  # Уменьшаем скорость работы (было 3)
             self.task['progress'] = self.current_work_time
             
             # Пульсация при работе
@@ -246,16 +267,19 @@ class Worker:
                 self.shape = 'o'
                 self.size = 100
                 
-                # С большой вероятностью выбираем случайную выработку
-                if random.random() < 0.9:
-                    # Выбираем случайную выработку, исключая текущую
-                    nodes = list(G.nodes)
-                    if self.current_node in nodes:
-                        nodes.remove(self.current_node)
-                    if nodes:
-                        target = random.choice(nodes)
-                        self.set_target(target)
-                        return True
+                # С большой вероятностью продолжаем работать в текущей выработке
+                if random.random() < 0.7:  # Увеличили вероятность остаться на месте (было 0.1)
+                    self.start_working()
+                    return True
+                
+                # Выбираем случайную выработку, исключая текущую
+                nodes = list(G.nodes)
+                if self.current_node in nodes:
+                    nodes.remove(self.current_node)
+                if nodes:
+                    target = random.choice(nodes)
+                    self.set_target(target)
+                    return True
                 
                 # Выбор новой цели с приоритетом выработок с подходящими работами
                 suitable_nodes = []
@@ -281,48 +305,56 @@ class Worker:
                 return True
             return False
             
-        # Если работник перемещается
-        elif self.path and self.current_path_index < len(self.path) - 1:
-            if self.movement_progress >= 1.0:
-                # Перешли к следующему узлу
-                self.current_path_index += 1
-                self.current_node = self.path[self.current_path_index]
-                self.path_history.append(self.current_node)
-                self.position = pos_3d[self.current_node]
+        # Если работник перемещается и у него есть путь
+        elif self.path and self.current_path_index < len(self.path):
+            current_node = self.path[self.current_path_index]
+            node_data = G.nodes[current_node]
+            
+            # Получаем координаты текущей выработки
+            start_pos = node_data['start_pos']
+            end_pos = node_data['end_pos']
+            
+            # Обновляем позицию на текущем сегменте выработки
+            self.segment_progress += self.speed * 0.3  # Увеличиваем скорость движения вдоль выработки (было 0.1)
+            
+            if self.segment_progress >= 1.0:
+                # Достигли конца текущей выработки
+                self.segment_progress = 0.0  # Сбрасываем прогресс
                 
+                # Переходим к следующей выработке в пути, если есть
                 if self.current_path_index < len(self.path) - 1:
-                    # Продолжаем движение к следующему узлу
-                    self.next_position = pos_3d[self.path[self.current_path_index + 1]]
-                    self.movement_progress = 0
+                    self.current_path_index += 1
+                    self.current_node = self.path[self.current_path_index]
+                    self.path_history.append(self.current_node)
+                    
+                    # Получаем данные следующей выработки
+                    next_node_data = G.nodes[self.current_node]
+                    self.current_segment = (next_node_data['start_pos'], next_node_data['end_pos'])
                 else:
-                    # Достигли конечного узла, начинаем работать
+                    # Достигли последней выработки в пути - начинаем работать
                     self.start_working()
                     return True
+            
+            # Обновляем текущую позицию в выработке
+            self.position = (
+                start_pos[0] + (end_pos[0] - start_pos[0]) * self.segment_progress,
+                start_pos[1] + (end_pos[1] - start_pos[1]) * self.segment_progress,
+                start_pos[2] + (end_pos[2] - start_pos[2]) * self.segment_progress
+            )
+            
+            # Определяем направление движения для маркера
+            dx = end_pos[0] - start_pos[0]
+            dy = end_pos[1] - start_pos[1]
+            dz = end_pos[2] - start_pos[2]
+            
+            # Определяем направление маркера в зависимости от направления движения
+            if abs(dx) > abs(dy) and abs(dx) > abs(dz):
+                self.shape = '>' if dx > 0 else '<'
+            elif abs(dy) > abs(dx) and abs(dy) > abs(dz):
+                self.shape = '^' if dy > 0 else 'v'
             else:
-                # Интерполируем позицию между текущим и следующим узлом
-                current_pos = pos_3d[self.path[self.current_path_index]]
-                next_pos = pos_3d[self.path[self.current_path_index + 1]]
-                
-                # Направление движения
-                dx = next_pos[0] - current_pos[0]
-                dy = next_pos[1] - current_pos[1]
-                dz = next_pos[2] - current_pos[2]
-                
-                # Определяем направление маркера
-                if abs(dx) > abs(dy) and abs(dx) > abs(dz):
-                    self.shape = '>' if dx > 0 else '<'
-                elif abs(dy) > abs(dx) and abs(dy) > abs(dz):
-                    self.shape = '^' if dy > 0 else 'v'
-                else:
-                    self.shape = 'd' if dz > 0 else 's'
-                
-                self.position = (
-                    current_pos[0] + (next_pos[0] - current_pos[0]) * self.movement_progress,
-                    current_pos[1] + (next_pos[1] - current_pos[1]) * self.movement_progress,
-                    current_pos[2] + (next_pos[2] - current_pos[2]) * self.movement_progress
-                )
-                
-                self.movement_progress += self.speed
+                self.shape = 'd' if dz > 0 else 's'
+            
             return True
         else:
             # Не перемещается и не работает - начинаем работать
@@ -335,16 +367,8 @@ class Worker:
             path = nx.shortest_path(G, self.current_node, target_node)
             return path
         except nx.NetworkXNoPath:
-            # Поскольку мы проверяем связность графа, эта ошибка не должна возникать
-            print(f"ОШИБКА: Не удалось найти путь от {self.current_node} до {target_node}")
-            # Выбираем новую случайную цель
-            nodes = list(G.nodes)
-            if self.current_node in nodes:
-                nodes.remove(self.current_node)
-            if nodes:
-                new_target = random.choice(nodes)
-                print(f"Выбираем новую цель: {new_target}")
-                return self.find_shortest_path(new_target)
+            print(f"Не удалось найти путь от {self.current_node} до {target_node}!")
+            # Возвращаем список с текущим узлом вместо None
             return [self.current_node]
 
 # Подготовка анимации
@@ -404,27 +428,31 @@ min_z = min([G.nodes[node]['start_pos'][2] for node in G.nodes] + [G.nodes[node]
 max_z = max([G.nodes[node]['start_pos'][2] for node in G.nodes] + [G.nodes[node]['end_pos'][2] for node in G.nodes])
 
 # Создаем фигуру для визуализации
-fig = plt.figure(figsize=(16, 12))
-ax = fig.add_subplot(111, projection='3d')
+fig = plt.figure(figsize=(20, 10))
+ax1 = fig.add_subplot(121, projection='3d')  # 3D-визуализация слева
+ax2 = fig.add_subplot(122)  # 2D-визуализация справа (вид спереди)
 
 # Устанавливаем количество кадров анимации
 num_frames = 100
 print(f"Будет создано {num_frames} кадров анимации")
 
 # Функция обновления кадра анимации
-def update_frame(frame_num, workers, ax):
-    ax.clear()
+def update_frame(frame_num, workers, ax1, ax2):
+    ax1.clear()
+    ax2.clear()
     
-    # Отрисовка выработок (линий)
+    # Отрисовка выработок (линий) в 3D
     for node, data in G.nodes(data=True):
         start_pos = data['start_pos']
         end_pos = data['end_pos']
-        ax.plot([start_pos[0], end_pos[0]], 
+        ax1.plot([start_pos[0], end_pos[0]], 
                 [start_pos[1], end_pos[1]], 
                 [start_pos[2], end_pos[2]], 
                 'gray', alpha=0.5, linewidth=1)
     
-    # Отрисовка узлов
+    # В 2D не отображаем тоннели, только центры выработок
+    
+    # Отрисовка узлов в 3D
     for node in G.nodes:
         node_data = G.nodes[node]
         x, y, z = pos_3d[node]
@@ -438,18 +466,28 @@ def update_frame(frame_num, workers, ax):
         else:
             color = 'blue'
             
-        ax.scatter([x], [y], [z], color=color, s=20, alpha=0.7)
+        ax1.scatter([x], [y], [z], color=color, s=20, alpha=0.7)
         
-    # Отрисовка ребер
+        # Отрисовка узлов в 2D (вид сбоку: x-z плоскость)
+        ax2.scatter([x], [z], color=color, s=20, alpha=0.7)
+        ax2.annotate(node, (x, z), fontsize=8)
+        
+    # Отрисовка ребер в 3D
     for u, v, data in G.edges(data=True):
         x1, y1, z1 = pos_3d[u]
         x2, y2, z2 = pos_3d[v]
         
         # Если ребро искусственное, рисуем пунктиром
         if data.get('artificial', False):
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'red', linestyle='--', alpha=0.7, linewidth=0.8)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'red', linestyle='--', alpha=0.7, linewidth=0.8)
         else:
-            ax.plot([x1, x2], [y1, y2], [z1, z2], 'black', alpha=0.3, linewidth=0.8)
+            ax1.plot([x1, x2], [y1, y2], [z1, z2], 'black', alpha=0.3, linewidth=0.8)
+            
+        # Отрисовка ребер в 2D (вид сбоку: x-z плоскость)
+        if data.get('artificial', False):
+            ax2.plot([x1, x2], [z1, z2], 'red', linestyle='--', alpha=0.7, linewidth=0.8)
+        else:
+            ax2.plot([x1, x2], [z1, z2], 'blue', linestyle='--', alpha=0.5, linewidth=0.8)
     
     # Перемещение и отрисовка работников
     for worker in workers:
@@ -459,24 +497,67 @@ def update_frame(frame_num, workers, ax):
         # Если работник активен (работает), менять его размер
         marker_size = worker.size * 1.2 if worker.working and worker.active else worker.size
         
-        ax.scatter([x], [y], [z], color=worker.color, s=marker_size, marker=worker.shape, 
+        # Отрисовка в 3D (по-прежнему внутри выработок)
+        ax1.scatter([x], [y], [z], color=worker.color, s=marker_size, marker=worker.shape, 
+                  label=f"{worker.name} ({worker.id})" if frame_num == 0 else "")
+        
+        # Для 2D отрисовки используем другую логику - работники двигаются по ребрам графа
+        # Вычисляем 2D позицию на ребре между центрами выработок
+        if worker.path and worker.current_path_index < len(worker.path) - 1:
+            # Если работник движется между двумя выработками
+            current_node = worker.path[worker.current_path_index]
+            next_node = worker.path[worker.current_path_index + 1]
+            
+            # Центр текущей выработки
+            current_node_data = G.nodes[current_node]
+            current_x = (current_node_data['start_pos'][0] + current_node_data['end_pos'][0]) / 2
+            current_z = (current_node_data['start_pos'][2] + current_node_data['end_pos'][2]) / 2
+            
+            # Центр следующей выработки
+            next_node_data = G.nodes[next_node]
+            next_x = (next_node_data['start_pos'][0] + next_node_data['end_pos'][0]) / 2
+            next_z = (next_node_data['start_pos'][2] + next_node_data['end_pos'][2]) / 2
+            
+            # Интерполируем положение на ребре
+            edge_progress = worker.segment_progress  # Используем тот же прогресс
+            x_2d = current_x + (next_x - current_x) * edge_progress
+            z_2d = current_z + (next_z - current_z) * edge_progress
+        else:
+            # Если работник находится в выработке (не движется или работает)
+            current_node = worker.current_node
+            current_node_data = G.nodes[current_node]
+            x_2d = (current_node_data['start_pos'][0] + current_node_data['end_pos'][0]) / 2
+            z_2d = (current_node_data['start_pos'][2] + current_node_data['end_pos'][2]) / 2
+                  
+        # Отрисовка в 2D (вид сбоку: x-z плоскость) по ребрам графа
+        ax2.scatter([x_2d], [z_2d], color=worker.color, s=marker_size, marker=worker.shape, 
                   label=f"{worker.name} ({worker.id})" if frame_num == 0 else "")
     
-    # Настройка вида
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
+    # Настройка 3D вида
+    ax1.set_xlabel('X')
+    ax1.set_ylabel('Y')
+    ax1.set_zlabel('Z')
     
-    # Ограничение осей
-    ax.set_xlim(min_x - 10, max_x + 10)
-    ax.set_ylim(min_y - 10, max_y + 10)
-    ax.set_zlim(min_z - 10, max_z + 10)
+    # Настройка 2D вида (вид сбоку: x-z плоскость)
+    ax2.set_xlabel('X')
+    ax2.set_ylabel('Z')
+    ax2.set_title('Граф шахты - схематический вид сбоку (X-Z)')
+    ax2.grid(True, linestyle='--', alpha=0.3)
+    
+    # Ограничение осей в 3D
+    ax1.set_xlim(min_x - 10, max_x + 10)
+    ax1.set_ylim(min_y - 10, max_y + 10)
+    ax1.set_zlim(min_z - 10, max_z + 10)
+    
+    # Ограничение осей в 2D (вид сбоку: x-z плоскость)
+    ax2.set_xlim(min_x - 10, max_x + 10)
+    ax2.set_ylim(min_z - 10, max_z + 10)
     
     # Добавление информации о текущем кадре
     frame_time = frame_num * 5  # Условное время (5 секунд на кадр)
     minutes = frame_time // 60
     seconds = frame_time % 60
-    ax.set_title(f'Перемещение работников в шахте [Время: {minutes:02d}:{seconds:02d}, Кадр: {frame_num+1}/{num_frames}]')
+    ax1.set_title(f'Перемещение работников в шахте [Время: {minutes:02d}:{seconds:02d}, Кадр: {frame_num+1}/{num_frames}]')
     
     # Отображаем информацию о некоторых работниках
     visible_workers = sorted(workers, key=lambda w: 0 if w.working else 1)[:5]
@@ -487,7 +568,15 @@ def update_frame(frame_num, workers, ax):
             progress_pct = int((worker.current_work_time / worker.work_time) * 100)
             progress = f" | Прогресс: {progress_pct}%"
         
-        description = f"{worker.name} ({worker.id}): {worker.status}{progress}"
+        # Определяем более подробный статус
+        status_text = worker.status
+        if worker.status == "работа":
+            status_text = f"работает: {work_names.get(worker.work_code, 'Неизвестная работа')}"
+        elif worker.status == "перемещение":
+            if worker.target_node:
+                status_text = f"идет в {worker.target_node}"
+                
+        description = f"{worker.name} ({worker.id}): {status_text}{progress}"
         
         # Определяем цвет фона для текста в зависимости от статуса
         bbox_color = 'white'
@@ -496,16 +585,16 @@ def update_frame(frame_num, workers, ax):
         elif worker.status == "перемещение":
             bbox_color = 'lightyellow'
         
-        ax.text2D(0.02, 0.95 - i*0.05, description, 
-                 transform=ax.transAxes,
+        ax1.text2D(0.02, 0.95 - i*0.05, description, 
+                 transform=ax1.transAxes,
                  bbox=dict(facecolor=bbox_color, alpha=0.7, boxstyle='round'))
     
-    return ax
+    return ax1, ax2
 
 # Создание кадров анимации
 print("Создание кадров анимации...")
 for frame in range(num_frames):
-    update_frame(frame, workers, ax)
+    update_frame(frame, workers, ax1, ax2)
     plt.savefig(f'animation_frames/frame_{frame:04d}.png', dpi=100, bbox_inches='tight')
     print(f'\rСоздан кадр {frame+1}/{num_frames}', end='')
 

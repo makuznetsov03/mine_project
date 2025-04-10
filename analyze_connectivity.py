@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+# Отключаем интерактивное отображение графиков
+plt.ioff()  # отключает интерактивный режим - графики не будут показываться
+
 def analyze_graph_connectivity(tolerance=0.5, visualize=True):
     """Анализирует связность графа шахтных выработок с разными параметрами tolerance"""
     print(f"Анализ связности графа с tolerance={tolerance}")
@@ -121,9 +124,14 @@ def analyze_graph_connectivity(tolerance=0.5, visualize=True):
     return G, connected_components
 
 def visualize_graph(G, mine_axes, tolerance):
-    """Визуализирует граф шахтных выработок в 3D"""
-    fig = plt.figure(figsize=(15, 12))
-    ax = fig.add_subplot(111, projection='3d')
+    """Визуализирует граф шахтных выработок в 3D и 2D"""
+    fig = plt.figure(figsize=(20, 10))
+    
+    # 3D визуализация
+    ax3d = fig.add_subplot(121, projection='3d')
+    
+    # 2D визуализация (вид сбоку: x-z плоскость)
+    ax2d = fig.add_subplot(122)
     
     # Используем различные цвета для разных компонент связности
     components = list(nx.connected_components(G))
@@ -147,17 +155,18 @@ def visualize_graph(G, mine_axes, tolerance):
     for i, component in enumerate(components):
         color = colors[i]
         
+        # 3D визуализация
         # Отрисовка узлов компоненты
         for node in component:
             x, y, z = pos_3d[node]
-            ax.scatter(x, y, z, color=color, s=100, alpha=0.8)
-            ax.text(x, y, z, node, fontsize=8, color='black')
+            ax3d.scatter(x, y, z, color=color, s=100, alpha=0.8)
+            ax3d.text(x, y, z, node, fontsize=8, color='black')
             
             # Отрисовка выработки как линии
             row = mine_axes[mine_axes['short_name'] == node].iloc[0]
             start_x, start_y, start_z = row['xs'], row['ys'], row['zs']
             end_x, end_y, end_z = row['xf'], row['yf'], row['zf']
-            ax.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1, alpha=0.3)
+            ax3d.plot([start_x, end_x], [start_y, end_y], [start_z, end_z], 'k-', linewidth=1, alpha=0.3)
         
         # Отрисовка ребер внутри компоненты
         for node1 in component:
@@ -165,13 +174,50 @@ def visualize_graph(G, mine_axes, tolerance):
                 if node2 in component and node1 < node2:  # Избегаем дублирования
                     x1, y1, z1 = pos_3d[node1]
                     x2, y2, z2 = pos_3d[node2]
-                    ax.plot([x1, x2], [y1, y2], [z1, z2], '--', color=color, linewidth=1.5, alpha=0.6)
+                    ax3d.plot([x1, x2], [y1, y2], [z1, z2], '--', color=color, linewidth=1.5, alpha=0.6)
+        
+        # 2D визуализация
+        # Отрисовка узлов компоненты в 2D (вид сбоку: x-z плоскость)
+        for node in component:
+            row = mine_axes[mine_axes['short_name'] == node].iloc[0]
+            
+            # Координаты середины выработки в проекции X-Z
+            x = (row['xs'] + row['xf']) / 2
+            z = (row['zs'] + row['zf']) / 2
+            
+            ax2d.scatter(x, z, color=color, s=100, alpha=0.8)
+            ax2d.text(x, z, node, fontsize=8, color='black')
+            
+            # Отрисовка выработки как линии в 2D
+            start_x, start_z = row['xs'], row['zs']
+            end_x, end_z = row['xf'], row['zf']
+            ax2d.plot([start_x, end_x], [start_z, end_z], 'k-', linewidth=1, alpha=0.3)
+        
+        # Отрисовка ребер внутри компоненты в 2D
+        for node1 in component:
+            for node2 in G.neighbors(node1):
+                if node2 in component and node1 < node2:  # Избегаем дублирования
+                    row1 = mine_axes[mine_axes['short_name'] == node1].iloc[0]
+                    row2 = mine_axes[mine_axes['short_name'] == node2].iloc[0]
+                    
+                    x1 = (row1['xs'] + row1['xf']) / 2
+                    z1 = (row1['zs'] + row1['zf']) / 2
+                    x2 = (row2['xs'] + row2['xf']) / 2
+                    z2 = (row2['zs'] + row2['zf']) / 2
+                    
+                    ax2d.plot([x1, x2], [z1, z2], '--', color=color, linewidth=1.5, alpha=0.6)
     
-    # Настройка осей
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title(f'3D визуализация графа шахтных выработок (tolerance={tolerance})')
+    # Настройка осей 3D
+    ax3d.set_xlabel('X')
+    ax3d.set_ylabel('Y')
+    ax3d.set_zlabel('Z')
+    ax3d.set_title(f'3D визуализация графа шахтных выработок (tolerance={tolerance})')
+    
+    # Настройка осей 2D
+    ax2d.set_xlabel('X')
+    ax2d.set_ylabel('Z')
+    ax2d.set_title(f'2D визуализация графа (вид сбоку, tolerance={tolerance})')
+    ax2d.grid(True, linestyle='--', alpha=0.3)
     
     plt.tight_layout()
     plt.savefig(f'connectivity_analysis_t{tolerance}.png', dpi=200)

@@ -48,6 +48,17 @@ def check_dependencies():
             subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
         else:
             print("⚠ numpy требуется для работы программы")
+            
+    try:
+        import openpyxl
+        print("✓ openpyxl установлен")
+    except ImportError:
+        print("⚠ openpyxl не установлен")
+        install = input("Установить openpyxl? (требуется для работы с Excel файлами) (y/n): ")
+        if install.lower() == 'y':
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+        else:
+            print("⚠ openpyxl требуется для обработки файла наряда")
 
 def run_script(script_name, description):
     """Запуск скрипта с сообщением"""
@@ -79,6 +90,7 @@ def main():
     print("1. Построение и визуализация графа шахтных выработок")
     print("2. Моделирование перемещения рабочих по шахте")
     print("3. Анализ рисков шахтной системы")
+    print("4. Интеграция данных нарядов и создание статического графа (NEW!)")
     print("="*80)
     
     # Проверка наличия необходимых файлов
@@ -100,6 +112,14 @@ def main():
     if not run_script('mine_network.py', "Построение и визуализация графа шахтных выработок"):
         return False
     
+    # Выполнение скрипта для обработки наряда и создания статического графа
+    if os.path.exists(naryad_file):
+        print("\nХотите запустить обработку файла наряда и создать статический граф? (y/n)")
+        choice_naryad = input("> ").strip().lower()
+        
+        if choice_naryad == 'y':
+            run_script('process_naryad.py', "Обработка файла наряда и создание статического графа")
+    
     print("\nХотите запустить анимацию перемещения работников? (y/n)")
     choice = input("> ").strip().lower()
     
@@ -115,7 +135,7 @@ def main():
         print("\nКакой тип анимации вы хотите запустить?")
         print("1. Стандартная анимация (mine_simulation.py)")
         print("2. Быстрая анимация (quick_simulation.py)")
-        print("3. Создание видео из кадров (create_animation.py)")
+        print("3. Создание видео из кадров (create_animation.py) - с динамическим отображением риска и легендой")
         ani_choice = input("> ").strip()
         
         if ani_choice == '1':
@@ -123,7 +143,7 @@ def main():
         elif ani_choice == '2':
             run_script('quick_simulation.py', "Быстрая анимация перемещения работников по шахте")
         elif ani_choice == '3':
-            run_script('create_animation.py', "Создание видео перемещения работников")
+            run_script('create_animation.py', "Создание видео перемещения работников с динамическим отображением риска")
         else:
             print("Некорректный выбор, запускаем стандартную анимацию...")
             run_script('mine_simulation.py', "Анимация перемещения работников по шахте")
@@ -145,6 +165,10 @@ def main():
     print("  - mine_network_axes.csv - Данные графа шахтных выработок")
     print("  - mine_network_edges.csv - Данные о смежностях выработок")
     print("  - mine_network.png - Визуализация графа шахтных выработок")
+    
+    if 'choice_naryad' in locals() and choice_naryad == 'y':
+        print("  - static_distance_graph.png - Статический 2D граф с весами-расстояниями")
+    
     if choice == 'y':
         if 'ani_choice' in locals():
             if ani_choice == '1':
@@ -153,7 +177,7 @@ def main():
                 print("  - workers_animation.gif - GIF-анимация перемещения работников")
                 print("  - quick_frames/ - Кадры для быстрой анимации")
             elif ani_choice == '3':
-                print("  - workers_animation.mp4 - Видео перемещения работников")
+                print("  - workers_animation.mp4 - Видео перемещения работников с динамическим отображением риска")
                 print("  - animation_frames/ - Кадры для анимации")
         else:
             print("  - workers_animation.mp4 - Анимация перемещения работников (если установлен ffmpeg)")

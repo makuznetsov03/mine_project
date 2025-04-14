@@ -553,11 +553,39 @@ def update_frame(frame_num, workers, ax1, ax2):
     ax2.set_xlim(min_x - 10, max_x + 10)
     ax2.set_ylim(min_z - 10, max_z + 10)
     
-    # Добавление информации о текущем кадре
+    # Расчет интегрального риска по шахте (динамическое отображение)
+    # Симулируем изменение рисков в зависимости от положения работников
+    node_risks = []
+    for node, data in G.nodes(data=True):
+        # Базовый риск узла в зависимости от статуса
+        base_risk = 0.0005 * data['status']
+        
+        # Риск от работ (симулируем)
+        active_workers_in_node = sum(1 for w in workers if w.current_node == node and w.working)
+        work_risk = 0.01 * active_workers_in_node  # Увеличиваем риск с каждым работающим работником
+        
+        # Расчет полного риска узла
+        total_risk = base_risk + work_risk * 0.7 - (base_risk * work_risk * 0.7)
+        node_risks.append(min(total_risk, 0.5))  # Ограничиваем максимальный риск узла
+    
+    # Расчет интегрального риска шахты (вероятность хотя бы одного ЧП)
+    no_incident_prob = 1.0
+    for risk in node_risks:
+        no_incident_prob *= (1.0 - risk)
+    
+    system_risk = 1.0 - no_incident_prob
+    
+    # Добавление информации о текущем кадре и интегральном риске
     frame_time = frame_num * 5  # Условное время (5 секунд на кадр)
     minutes = frame_time // 60
     seconds = frame_time % 60
     ax1.set_title(f'Перемещение работников в шахте [Время: {minutes:02d}:{seconds:02d}, Кадр: {frame_num+1}/{num_frames}]')
+    
+    # Добавление информации об интегральном риске
+    risk_text = f'Интегральная вероятность ЧП: {system_risk:.4f}'
+    bbox_props = dict(boxstyle="round,pad=0.5", fc="lightyellow", ec="orange", alpha=0.9)
+    ax2.text(0.5, 0.02, risk_text, transform=ax2.transAxes, 
+            fontsize=10, ha='center', va='bottom', bbox=bbox_props)
     
     # Отображаем информацию о некоторых работниках
     visible_workers = sorted(workers, key=lambda w: 0 if w.working else 1)[:5]
@@ -588,6 +616,39 @@ def update_frame(frame_num, workers, ax1, ax2):
         ax1.text2D(0.02, 0.95 - i*0.05, description, 
                  transform=ax1.transAxes,
                  bbox=dict(facecolor=bbox_color, alpha=0.7, boxstyle='round'))
+    
+    # Добавление легенды для маркеров работников
+    # Создаем прокси-объекты для легенды
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=8, label='Бурильщик'),
+        Line2D([0], [0], marker='s', color='w', markerfacecolor='blue', markersize=8, label='Электрик'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='green', markersize=8, label='Механик'),
+        Line2D([0], [0], marker='d', color='w', markerfacecolor='purple', markersize=8, label='Проходчик'),
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='orange', markersize=10, label='Мастер')
+    ]
+    
+    # Добавляем легенду для цветов узлов
+    legend_elements.extend([
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=8, 
+              label='Выработка - хорошее состояние'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='orange', markersize=8, 
+              label='Выработка - требует внимания'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='red', markersize=8, 
+              label='Выработка - требует ремонта'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=8, 
+              label='Выработка - другое')
+    ])
+    
+    # Добавляем легенду для типов соединений
+    legend_elements.extend([
+        Line2D([0], [0], color='blue', linestyle='--', alpha=0.5, label='Естественное соединение'),
+        Line2D([0], [0], color='red', linestyle='--', alpha=0.7, label='Искусственное соединение')
+    ])
+    
+    # Размещаем легенду внизу графика
+    ax2.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, -0.15),
+              fancybox=True, shadow=True, ncol=3, fontsize=8)
     
     return ax1, ax2
 
